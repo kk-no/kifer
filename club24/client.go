@@ -1,6 +1,9 @@
 package club24
 
 import (
+	"bufio"
+	"fmt"
+	"os"
 	"time"
 
 	"github.com/sclevine/agouti"
@@ -33,7 +36,7 @@ func (c *Client) Download(page *agouti.Page, config *DownloadConfig) error {
 	if err := page.Navigate(kifuPageURL); err != nil {
 		return err
 	}
-	c.sleep()
+	time.Sleep(c.waitTime)
 
 	if err := page.FindByXPath(loginUserFormXPath).Fill(c.user); err != nil {
 		return err
@@ -44,7 +47,21 @@ func (c *Client) Download(page *agouti.Page, config *DownloadConfig) error {
 	if err := page.FindByXPath(loginSubmitButtonXPath).Click(); err != nil {
 		return err
 	}
-	c.sleep()
+	time.Sleep(c.waitTime)
+
+	if _, err := page.FindByXPath(kifuUser1FormXPath).Active(); err != nil {
+		// NOTE: Login may not be successful with reCAPTCHA.
+		//  Manual login required.
+		fmt.Print("Please press the Enter key after manually logging in...")
+		for {
+			if _, err := bufio.NewReader(os.Stdin).ReadString('\n'); err != nil {
+				continue
+			}
+			break
+		}
+		fmt.Println("Resuming download")
+		time.Sleep(c.waitTime)
+	}
 
 	if config.User1 != "" {
 		if err := page.FindByXPath(kifuUser1FormXPath).Fill(config.User1); err != nil {
@@ -62,22 +79,18 @@ func (c *Client) Download(page *agouti.Page, config *DownloadConfig) error {
 		}
 	}
 	if !config.End.IsZero() {
-		if err := page.FindByXPath(kifuEndDateName).Fill(config.End.Format(dateOnly)); err != nil {
+		if err := page.FindByName(kifuEndDateName).Fill(config.End.Format(dateOnly)); err != nil {
 			return err
 		}
 	}
 	if err := page.FindByXPath(kifuSearchButtonXPath).Click(); err != nil {
 		return err
 	}
-	c.sleep()
+	time.Sleep(c.waitTime)
 
 	if err := page.FindByXPath(kifuDownloadButtonXPath).Click(); err != nil {
 		return err
 	}
-	c.sleep()
+	time.Sleep(c.waitTime * 5)
 	return nil
-}
-
-func (c *Client) sleep() {
-	time.Sleep(c.waitTime)
 }
