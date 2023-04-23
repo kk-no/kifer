@@ -3,13 +3,18 @@ package club24
 import (
 	"bufio"
 	"fmt"
-	"os"
+	"io"
+	"regexp"
 	"time"
 
+	"github.com/kk-no/kifer/internal/conv"
+	"github.com/kk-no/kifer/internal/files"
+	"github.com/kk-no/kifer/internal/input"
 	"github.com/sclevine/agouti"
 )
 
 type Client struct {
+	dir  string
 	user string
 	pass string
 
@@ -17,8 +22,9 @@ type Client struct {
 	waitTime time.Duration
 }
 
-func New(user, pass string, wait time.Duration) *Client {
+func New(dir, user, pass string, wait time.Duration) *Client {
 	return &Client{
+		dir:      dir,
 		user:     user,
 		pass:     pass,
 		waitTime: wait,
@@ -30,14 +36,46 @@ type DownloadConfig struct {
 	User2 string
 	Start time.Time
 	End   time.Time
+
+	MinMoveCount int
+	MinRate      int
 }
 
 func (c *Client) Download(page *agouti.Page, config *DownloadConfig) error {
+	if err := c.access(page); err != nil {
+		return err
+	}
+	if err := c.login(page); err != nil {
+		return err
+	}
+	if !c.isLogin(page) {
+		// NOTE: Login may not be successful with reCAPTCHA.
+		//  Manual login required.
+		fmt.Print("Please press the Enter key after manually logging in...")
+		input.WaitEnter(30 * time.Second)
+		time.Sleep(c.waitTime)
+	}
+	if err := c.fillAndSearch(page, config); err != nil {
+		return err
+	}
+	if err := c.download(page); err != nil {
+		return err
+	}
+	if err := c.unzipFilter(config.MinMoveCount, config.MinRate); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c *Client) access(page *agouti.Page) error {
 	if err := page.Navigate(kifuPageURL); err != nil {
 		return err
 	}
 	time.Sleep(c.waitTime)
+	return nil
+}
 
+func (c *Client) login(page *agouti.Page) error {
 	if err := page.FindByXPath(loginUserFormXPath).Fill(c.user); err != nil {
 		return err
 	}
@@ -48,21 +86,17 @@ func (c *Client) Download(page *agouti.Page, config *DownloadConfig) error {
 		return err
 	}
 	time.Sleep(c.waitTime)
+	return nil
+}
 
+func (c *Client) isLogin(page *agouti.Page) bool {
 	if _, err := page.FindByXPath(kifuUser1FormXPath).Active(); err != nil {
-		// NOTE: Login may not be successful with reCAPTCHA.
-		//  Manual login required.
-		fmt.Print("Please press the Enter key after manually logging in...")
-		for {
-			if _, err := bufio.NewReader(os.Stdin).ReadString('\n'); err != nil {
-				continue
-			}
-			break
-		}
-		fmt.Println("Resuming download")
-		time.Sleep(c.waitTime)
+		return false
 	}
+	return true
+}
 
+func (c *Client) fillAndSearch(page *agouti.Page, config *DownloadConfig) error {
 	if config.User1 != "" {
 		if err := page.FindByXPath(kifuUser1FormXPath).Fill(config.User1); err != nil {
 			return err
@@ -87,10 +121,47 @@ func (c *Client) Download(page *agouti.Page, config *DownloadConfig) error {
 		return err
 	}
 	time.Sleep(c.waitTime)
+	return nil
+}
 
+func (c *Client) download(page *agouti.Page) error {
 	if err := page.FindByXPath(kifuDownloadButtonXPath).Click(); err != nil {
 		return err
 	}
 	time.Sleep(c.waitTime * 5)
 	return nil
+}
+
+func (c *Client) unzipFilter(minMove, minRate int) error {
+	filter := func(r io.Reader) bool {
+		rate1, rate2, count := 0, 0, 0
+		scanner := bufio.NewScanner(r)
+		for scanner.Scan() {
+			count++
+			switch count {
+			case 5: // Extract `9999` from `先手：user1(9999)`
+				rate1 = extractRating(scanner.Text())
+			case 6: // Extract `9999` from `後手：user2(9999)`
+				rate2 = extractRating(scanner.Text())
+			}
+		}
+		if err := scanner.Err(); err != nil {
+			return false
+		}
+		return minMove+fileMetadataCount < count && minRate < rate1 && minRate < rate2
+	}
+	if err := files.UnzipInDirectory(c.dir, filter); err != nil {
+		return err
+	}
+	return nil
+}
+
+var ratingExtractFormat = regexp.MustCompile(`\(([0-9]+)\)`)
+
+func extractRating(s string) int {
+	match := ratingExtractFormat.FindStringSubmatch(s)
+	if len(match) != 2 {
+		return 0
+	}
+	return conv.Atoi(match[1])
 }
