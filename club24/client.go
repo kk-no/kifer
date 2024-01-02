@@ -43,10 +43,10 @@ type DownloadConfig struct {
 
 func (c *Client) Download(page *agouti.Page, config *DownloadConfig) error {
 	if err := c.access(page); err != nil {
-		return err
+		return fmt.Errorf("access failed: %w", err)
 	}
 	if err := c.login(page); err != nil {
-		return err
+		return fmt.Errorf("login failed: %w", err)
 	}
 	if !c.isLogin(page) {
 		// NOTE: Login may not be successful with reCAPTCHA.

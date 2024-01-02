@@ -24,7 +24,7 @@ const (
 	// Moves...
 	// 64 投了
 	// まで63手で先手の勝ち
-	fileMetadataCount = 6 + 2 //
+	fileMetadataCount = 6 + 2
 )
 
 const (
