@@ -41,7 +41,7 @@ type DownloadConfig struct {
 	MinRate      int
 }
 
-func (c *Client) Download(page *agouti.Page, config *DownloadConfig) error {
+func (c *Client) Login(page *agouti.Page) error {
 	if err := c.access(page); err != nil {
 		return fmt.Errorf("access failed: %w", err)
 	}
@@ -55,6 +55,10 @@ func (c *Client) Download(page *agouti.Page, config *DownloadConfig) error {
 		input.WaitEnter(30 * time.Second)
 		time.Sleep(c.waitTime)
 	}
+	return nil
+}
+
+func (c *Client) Download(page *agouti.Page, config *DownloadConfig) error {
 	if err := c.fillAndSearch(page, config); err != nil {
 		return err
 	}
@@ -132,8 +136,8 @@ func (c *Client) download(page *agouti.Page) error {
 	return nil
 }
 
-func (c *Client) unzipFilter(minMove, minRate int) error {
-	filter := func(r io.Reader) bool {
+func FilterByMoveCountAndRate(minMove, minRate int) files.FilterFunc {
+	return func(r io.Reader) bool {
 		rate1, rate2, count := 0, 0, 0
 		scanner := bufio.NewScanner(r)
 		for scanner.Scan() {
@@ -150,10 +154,10 @@ func (c *Client) unzipFilter(minMove, minRate int) error {
 		}
 		return minMove+fileMetadataCount < count && minRate < rate1 && minRate < rate2
 	}
-	if err := files.UnzipInDirectory(c.dir, filter); err != nil {
-		return err
-	}
-	return nil
+}
+
+func (c *Client) unzipFilter(minMove, minRate int) error {
+	return files.UnzipInDirectory(c.dir, FilterByMoveCountAndRate(minMove, minRate))
 }
 
 var ratingExtractFormat = regexp.MustCompile(`\(([0-9]+)\)`)
